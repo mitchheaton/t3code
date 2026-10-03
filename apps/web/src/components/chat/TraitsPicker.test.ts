@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ProviderDriverKind, type ProviderOptionDescriptor } from "@t3tools/contracts";
+import {
+  ProviderInstanceId,
+  ProviderDriverKind,
+  type ProviderOptionDescriptor,
+} from "@t3tools/contracts";
 import { buildTraitsTriggerDisplay, buildUnavailableModelOptionDescriptors } from "./TraitsPicker";
 
 function selectDescriptor(
@@ -231,4 +235,59 @@ describe("buildUnavailableModelOptionDescriptors", () => {
       },
     ]);
   });
+});
+
+it("shows OpenCode's reported Default on the trigger while keeping only None and Thinking choices", () => {
+  const selection = {
+    instanceId: ProviderInstanceId.make("opencode"),
+    model: "openrouter/inclusionai/ling-3.1-flash",
+    options: [],
+  };
+  const descriptors: ReadonlyArray<ProviderOptionDescriptor> = [
+    {
+      id: "variant",
+      label: "Reasoning",
+      type: "select",
+      options: [
+        { id: "none", label: "None" },
+        { id: "thinking", label: "Thinking" },
+      ],
+    },
+  ];
+  const input = {
+    provider: ProviderDriverKind.make("opencode"),
+    descriptors,
+    primarySelectDescriptorId: "variant",
+    ultrathinkPromptControlled: false,
+    modelSelection: selection,
+    reportedModelSelection: { ...selection, options: [{ id: "variant", value: "default" }] },
+  };
+  expect(buildTraitsTriggerDisplay(input)).toEqual({ label: "Default", speedIcon: null });
+  expect(descriptors[0]).toMatchObject({
+    options: [
+      { id: "none", label: "None" },
+      { id: "thinking", label: "Thinking" },
+    ],
+  });
+  expect(buildTraitsTriggerDisplay({ ...input, reportedModelSelection: null })).toEqual({
+    label: "",
+    speedIcon: null,
+  });
+  expect(
+    buildTraitsTriggerDisplay({
+      ...input,
+      modelSelection: { ...selection, options: [{ id: "variant", value: "thinking" }] },
+      descriptors: [
+        {
+          ...descriptors[0]!,
+          type: "select",
+          options: [
+            { id: "none", label: "None" },
+            { id: "thinking", label: "Thinking" },
+          ],
+          currentValue: "thinking",
+        },
+      ],
+    }),
+  ).toEqual({ label: "Thinking", speedIcon: null });
 });

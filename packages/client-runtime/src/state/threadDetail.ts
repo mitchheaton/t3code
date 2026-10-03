@@ -8,6 +8,7 @@ import {
   type ThreadQueueWorkflowState,
 } from "./threadWorkflows.ts";
 import { deriveThreadTurnSubagents, type ThreadTurnSubagents } from "./threadSubagents.ts";
+import { deriveReportedModelSelection } from "./threadExecution.ts";
 import type { EnvironmentThread } from "./models.ts";
 import { EMPTY_ENVIRONMENT_THREAD_STATE, type EnvironmentThreadState } from "./threadState.ts";
 import {
@@ -49,6 +50,13 @@ export function createEnvironmentThreadDetailAtoms<E>(
       return previousValue;
     }).pipe(Atom.setIdleTTL(0), Atom.withLabel(`environment-thread:${key}`));
   });
+
+  const reportedModelSelectionAtomFamily = Atom.family((key: string) =>
+    Atom.make((get) => {
+      const projection = Option.getOrNull(get(threadStateValueAtomFamily(key)).data);
+      return projection === null ? null : deriveReportedModelSelection(projection);
+    }).pipe(Atom.setIdleTTL(0), Atom.withLabel(`environment-thread-reported-model:${key}`)),
+  );
 
   const visibleTurnItemsAtomFamily = Atom.family((key: string) => {
     const projectQuestionHistory = createQuestionHistoryProjector();
@@ -190,6 +198,8 @@ export function createEnvironmentThreadDetailAtoms<E>(
     queuedCountAtom: (ref: ScopedThreadRef) => queuedCountAtomFamily(threadKey(ref)),
     turnSubagentsAtom: (ref: ScopedThreadRef) => turnSubagentsAtomFamily(threadKey(ref)),
     stateAtom: (ref: ScopedThreadRef) => threadStateValueAtomFamily(threadKey(ref)),
+    reportedModelSelectionAtom: (ref: ScopedThreadRef) =>
+      reportedModelSelectionAtomFamily(threadKey(ref)),
     threadAtom: (ref: ScopedThreadRef) => threadAtomFamily(threadKey(ref)),
     visibleTurnItemsAtom: (ref: ScopedThreadRef) => visibleTurnItemsAtomFamily(threadKey(ref)),
     statusAtom: (ref: ScopedThreadRef) => statusAtomFamily(threadKey(ref)),

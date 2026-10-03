@@ -88,6 +88,7 @@ import { effectiveSnoozed, threadWokeAt } from "@t3tools/client-runtime/state/th
 import { useThreadActions } from "../hooks/useThreadActions";
 import {
   deriveProviderSubagentStatus,
+  deriveReportedModelSelection,
   formatModelSelectionEffort,
   deriveRunlessWorkStartedAt,
   deriveThreadActivityRun,
@@ -4064,7 +4065,11 @@ export default function ChatView(props: ChatViewProps) {
   const providerSubagentEffortLabel =
     activeThread === undefined
       ? null
-      : formatModelSelectionEffort(activeThread.modelSelection, providerSubagentModels);
+      : formatModelSelectionEffort(
+          activeThread.modelSelection,
+          providerSubagentModels,
+          serverProjection ? deriveReportedModelSelection(serverProjection) : null,
+        );
   const mountComposerContextStrip = shouldShowComposerContextStrip({
     isDraftHeroState,
     persistInActiveThreads: settings.persistComposerContextStrip,

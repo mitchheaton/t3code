@@ -9,6 +9,8 @@ import {
   createModelSelection,
   formatCodexModelName,
   formatModelSlugName,
+  getModelSelectionReportedOptionValue,
+  getProviderOptionCurrentLabel,
   getModelSelectionBooleanOptionValue,
   getModelSelectionStringOptionValue,
   getProviderOptionDescriptors,
@@ -300,5 +302,66 @@ describe("readCustomModelEntries", () => {
       name: "X",
       capabilities,
     });
+  });
+});
+
+describe("provider-reported option display", () => {
+  const selection = {
+    instanceId: ProviderInstanceId.make("opencode"),
+    model: "openrouter/inclusionai/ling-3.1-flash",
+    options: [],
+  };
+  const reported = { ...selection, options: [{ id: "variant", value: "default" }] };
+  const descriptor = {
+    id: "variant",
+    label: "Reasoning",
+    type: "select" as const,
+    options: [
+      { id: "none", label: "None" },
+      { id: "thinking", label: "Thinking" },
+    ],
+  };
+
+  it("displays an explicitly reported default without adding a choice or a dispatch option", () => {
+    const value = getModelSelectionReportedOptionValue(selection, reported, "variant");
+    expect(getProviderOptionCurrentLabel(descriptor, value)).toBe("Default");
+    expect(descriptor.options.map((option) => option.id)).toEqual(["none", "thinking"]);
+    expect(buildProviderOptionSelectionsFromDescriptors([descriptor])).toBeUndefined();
+    expect(getProviderOptionCurrentLabel(descriptor)).toBeUndefined();
+  });
+
+  it("uses the catalog label for a reported selectable value", () => {
+    const value = getModelSelectionReportedOptionValue(
+      selection,
+      { ...reported, options: [{ id: "variant", value: "thinking" }] },
+      "variant",
+    );
+    expect(getProviderOptionCurrentLabel(descriptor, value)).toBe("Thinking");
+  });
+
+  it("lets an explicit user selection supersede the last reported value", () => {
+    const selected = { ...selection, options: [{ id: "variant", value: "none" }] };
+    const value = getModelSelectionReportedOptionValue(selected, reported, "variant");
+    expect(value).toBeUndefined();
+    expect(getProviderOptionCurrentLabel({ ...descriptor, currentValue: "none" }, value)).toBe(
+      "None",
+    );
+  });
+
+  it("ignores observations from a different model or provider instance", () => {
+    expect(
+      getModelSelectionReportedOptionValue(
+        { ...selection, model: "other/model" },
+        reported,
+        "variant",
+      ),
+    ).toBeUndefined();
+    expect(
+      getModelSelectionReportedOptionValue(
+        { ...selection, instanceId: ProviderInstanceId.make("other-opencode") },
+        reported,
+        "variant",
+      ),
+    ).toBeUndefined();
   });
 });

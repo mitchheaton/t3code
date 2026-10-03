@@ -76,6 +76,24 @@ export function getModelSelectionStringOptionValue(
   return getProviderOptionStringSelectionValue(modelSelection?.options, id);
 }
 
+/** Display an observed option only for the same model, until the user chooses a value. */
+export function getModelSelectionReportedOptionValue(
+  selection: ModelSelection | null | undefined,
+  reportedSelection: ModelSelection | null | undefined,
+  id: string,
+): string | undefined {
+  if (
+    !selection ||
+    !reportedSelection ||
+    selection.instanceId !== reportedSelection.instanceId ||
+    selection.model !== reportedSelection.model ||
+    selection.options?.some((option) => option.id === id)
+  ) {
+    return undefined;
+  }
+  return getModelSelectionStringOptionValue(reportedSelection, id);
+}
+
 export function getModelSelectionBooleanOptionValue(
   modelSelection: ModelSelection | null | undefined,
   id: string,
@@ -219,6 +237,7 @@ export function getProviderOptionCurrentValue(
 
 export function getProviderOptionCurrentLabel(
   descriptor: ProviderOptionDescriptor | null | undefined,
+  reportedValue?: string,
 ): string | undefined {
   if (!descriptor) {
     return undefined;
@@ -230,11 +249,14 @@ export function getProviderOptionCurrentLabel(
         : "Off"
       : undefined;
   }
-  const currentValue = getProviderOptionCurrentValue(descriptor);
+  const currentValue = reportedValue ?? getProviderOptionCurrentValue(descriptor);
   if (typeof currentValue !== "string") {
     return undefined;
   }
-  return descriptor.options.find((option) => option.id === currentValue)?.label;
+  return (
+    descriptor.options.find((option) => option.id === currentValue)?.label ??
+    (reportedValue === "default" ? "Default" : reportedValue)
+  );
 }
 
 export function buildProviderOptionSelectionsFromDescriptors(

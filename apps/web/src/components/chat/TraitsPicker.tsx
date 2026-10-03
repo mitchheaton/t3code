@@ -1,4 +1,5 @@
 import {
+  type ModelSelection,
   type ProviderDriverKind,
   type ProviderInstanceId,
   type ProviderOptionDescriptor,
@@ -9,6 +10,7 @@ import {
 import {
   applyClaudePromptEffortPrefix,
   buildProviderOptionSelectionsFromDescriptors,
+  getModelSelectionReportedOptionValue,
   getProviderOptionCurrentLabel,
   getProviderOptionCurrentValue,
   getProviderOptionDescriptors,
@@ -29,6 +31,7 @@ import {
 } from "../ui/menu";
 import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
+import { useThreadReportedModelSelection } from "../../state/entities";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -292,6 +295,9 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   planModeEnabled,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
+  const reportedModelSelection = useThreadReportedModelSelection(persistence.threadRef ?? null);
+  const modelSelection =
+    instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const updateModelOptions = useCallback(
     (nextOptions: ProviderOptions | undefined) => {
@@ -362,7 +368,14 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     return (
       <>
         {descriptors.map((descriptor, index) => {
-          const value = getProviderOptionCurrentLabel(descriptor);
+          const value = getProviderOptionCurrentLabel(
+            descriptor,
+            getModelSelectionReportedOptionValue(
+              modelSelection,
+              reportedModelSelection,
+              descriptor.id,
+            ),
+          );
           if (!value) return null;
           return (
             <div key={descriptor.id}>
@@ -386,7 +399,13 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
         const selectedValue =
           ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id
             ? "ultrathink"
-            : (getDescriptorStringValue(descriptor) ?? "");
+            : (getModelSelectionReportedOptionValue(
+                modelSelection,
+                reportedModelSelection,
+                descriptor.id,
+              ) ??
+              getDescriptorStringValue(descriptor) ??
+              "");
 
         return (
           <div key={descriptor.id}>
@@ -483,6 +502,8 @@ export function buildTraitsTriggerDisplay(input: {
   descriptors: ReadonlyArray<ProviderOptionDescriptor>;
   primarySelectDescriptorId: string | null;
   ultrathinkPromptControlled: boolean;
+  modelSelection?: ModelSelection | null;
+  reportedModelSelection?: ModelSelection | null;
 }): { label: string; speedIcon: "fast" | "ultrafast" | null } {
   let fastModeFallbackLabel: string | null = null;
   let speedIcon: "fast" | "ultrafast" | null = null;
@@ -522,7 +543,14 @@ export function buildTraitsTriggerDisplay(input: {
         ? "Ultrathink"
         : descriptor.type === "boolean"
           ? `${descriptor.label} ${descriptor.currentValue === true ? "On" : "Off"}`
-          : getProviderOptionCurrentLabel(descriptor);
+          : getProviderOptionCurrentLabel(
+              descriptor,
+              getModelSelectionReportedOptionValue(
+                input.modelSelection,
+                input.reportedModelSelection,
+                descriptor.id,
+              ),
+            );
     if (typeof label === "string" && label.length > 0) {
       labels.push(label);
     }
@@ -557,6 +585,7 @@ export const TraitsPicker = memo(function TraitsPicker({
     size?: ComposerControlSize;
     hidden?: boolean;
   }) {
+  const reportedModelSelection = useThreadReportedModelSelection(persistence.threadRef ?? null);
   const composerFloatingLayerProps = useComposerMenuProps();
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden);
   const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled } =
@@ -588,6 +617,8 @@ export const TraitsPicker = memo(function TraitsPicker({
     descriptors,
     primarySelectDescriptorId: primarySelectDescriptor?.id ?? null,
     ultrathinkPromptControlled,
+    modelSelection: instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null,
+    reportedModelSelection,
   });
   const speedLabel = speedIcon === "ultrafast" ? "Ultrafast mode on" : "Fast mode on";
   const accessibleLabel = speedIcon ? `${triggerLabel}, ${speedLabel}` : triggerLabel;

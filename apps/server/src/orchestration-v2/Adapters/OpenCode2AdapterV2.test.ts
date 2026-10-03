@@ -3869,3 +3869,80 @@ const providerTurnId = Effect.gen(function* () {
     nativeTurnId: `${SESSION}:attempt:attempt:opencode2-adapter`,
   });
 }).pipe(Effect.provide(IdAllocator.layer));
+
+describe("OpenCode reported model variants", () => {
+  it.effect(
+    "preserves the reported default on resume without changing the requested selection",
+    () =>
+      Effect.gen(function* () {
+        const { thread } = yield* resumed([]);
+        assert.deepEqual(thread.nativeMetadata?.modelSelection, {
+          ...bigPickle,
+          options: [{ id: "variant", value: "default" }],
+        });
+        assert.equal(bigPickle.options, undefined);
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("carries the server's reported model from a newly created session", () =>
+    Effect.gen(function* () {
+      const runtime = yield* openCode2ReplayRuntime([
+        ...opening,
+        out("session.create", {
+          location: { directory: WORK },
+          model: { providerID: "opencode", id: "big-pickle" },
+          permissions: t3Rules,
+        }),
+        replyData("session.create", sessionInfo()),
+      ]);
+      const thread = yield* runtime.ensureThread({
+        threadId,
+        modelSelection: bigPickle,
+        runtimePolicy: policy(),
+      });
+      assert.deepEqual(thread.nativeMetadata?.modelSelection, {
+        ...bigPickle,
+        options: [{ id: "variant", value: "default" }],
+      });
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "updates reported variants from selected-model and step events without duplicate updates",
+    () =>
+      Effect.gen(function* () {
+        const model = { providerID: "opencode", id: "big-pickle", variant: "thinking" };
+        const step = {
+          sessionID: SESSION,
+          assistantMessageID: "msg_0eb735d5b001oAFVeY5jz3WD4Z",
+          agent: "build",
+          model,
+          started: 1,
+        };
+        const { runtime, thread } = yield* resumed([
+          out("session.prompt", { sessionID: SESSION, text: "<any>" }),
+          promptAccepted,
+          event("session.execution.started", { sessionID: SESSION }),
+          event("session.model.selected", { sessionID: SESSION, model }),
+          event("session.step.started", step),
+          event("session.step.started", { ...step, model: { ...model, variant: "none" } }),
+          event("session.execution.succeeded", { sessionID: SESSION }),
+        ]);
+        const collected = yield* runtime.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+          Effect.forkScoped,
+        );
+        yield* runtime.startTurn(turnInput(thread));
+        const updates = (yield* Fiber.join(collected)).filter(
+          (event) => event.type === "provider_thread.updated",
+        );
+        assert.deepEqual(
+          updates.map(
+            (event) => event.providerThread.nativeMetadata?.modelSelection?.options?.[0]?.value,
+          ),
+          ["default", "thinking", "none", "none"],
+        );
+      }).pipe(Effect.scoped),
+  );
+});
