@@ -251,10 +251,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const intent = yield* Ref.make(initialIntent);
   const signals = yield* Queue.unbounded<SupervisorSignal>();
   const resetRetryState = yield* Ref.make(false);
-  // Set when a probe of the live session fails or times out: something asked
-  // whether the connection still works and it does not, so the follow-up
-  // reconnect skips the first backoff rung instead of sleeping.
-  const probeFailed = yield* Ref.make(false);
+  // Set while a probe of the live session is running, and kept when it fails
+  // or times out: something asked whether the connection still works and it
+  // closed or failed before answering, so the follow-up reconnect skips the
+  // first backoff rung instead of sleeping.
+  const probeUnanswered = yield* Ref.make(false);
   const state = yield* SubscriptionRef.make<SupervisorConnectionState>(
     !initialIntent.desired
       ? availableState(initialIntent, 0)
@@ -453,8 +454,15 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const monitorConnectedLease = Effect.fnUntraced(function* (
     lease: ConnectionDriver.EnvironmentConnectionLease,
   ) {
+    // A probe answers an explicit retry here, so the retry must not also reset
+    // the backoff of a later, unrelated failure.
+    const takeSignal = Queue.take(signals).pipe(
+      Effect.tap((next) =>
+        next._tag === "RetryRequested" ? Ref.set(resetRetryState, false) : Effect.void,
+      ),
+    );
     for (;;) {
-      const next = yield* Queue.take(signals);
+      const next = yield* takeSignal;
       if (yield* endsConnectedLease(next)) {
         return;
       }
@@ -462,6 +470,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       if (probeTimeout === undefined) {
         continue;
       }
+      yield* Ref.set(probeUnanswered, true);
       const probe = yield* lease.session.probe.pipe(
         Effect.timeoutOrElse({
           duration: probeTimeout,
@@ -480,11 +489,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           Fiber.await(probe).pipe(
             Effect.map((exit) => ({ _tag: "ProbeCompleted" as const, exit })),
           ),
-          Queue.take(signals).pipe(Effect.map((signal) => ({ _tag: "Signal" as const, signal }))),
+          takeSignal.pipe(Effect.map((signal) => ({ _tag: "Signal" as const, signal }))),
         );
         if (probeEvent._tag === "ProbeCompleted") {
-          if (Exit.isFailure(probeEvent.exit)) {
-            yield* Ref.set(probeFailed, true);
+          if (Exit.isSuccess(probeEvent.exit)) {
+            yield* Ref.set(probeUnanswered, false);
           }
           yield* probeEvent.exit;
           break;
@@ -685,7 +694,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       );
       // Consumed on every iteration so a stale marker can never leak into a
       // later, unrelated failure.
-      const failedProbe = yield* Ref.getAndSet(probeFailed, false);
+      const failedProbe = yield* Ref.getAndSet(probeUnanswered, false);
       if (outcome.established) {
         generation = nextGeneration;
         if (outcome.stable) {
@@ -723,8 +732,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       }
 
       if (failedProbe) {
-        // A probe found a dead transport (the user returned to the app, asked
-        // to retry, or the network changed), so reconnect immediately instead
+        // A probe found a dead transport, or the transport closed while a probe
+        // waited for an answer (the user returned to the app, asked to retry,
+        // or the network changed), so reconnect immediately instead
         // of sleeping the first backoff rung. Only this first attempt skips the
         // ladder; if it fails too, normal backoff resumes.
         resetRetryLadder();

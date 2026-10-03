@@ -750,6 +750,51 @@ describe("EnvironmentSupervisor", () => {
     }),
   );
 
+  it.effect("keeps the backoff ladder after an explicit retry finds a healthy session", () =>
+    Effect.gen(function* () {
+      const probeCount = yield* Ref.make(0);
+      const harness = yield* makeHarness({
+        probe: () => Ref.update(probeCount, (count) => count + 1),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.closeLatestSession();
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "backoff" && state.attempt === 1,
+      );
+      yield* TestClock.adjust("2 seconds");
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+
+      yield* supervisor.retryNow;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if ((yield* Ref.get(probeCount)) > 0) break;
+        yield* Effect.yieldNow;
+      }
+      expect(yield* Ref.get(probeCount)).toBe(1);
+
+      // The flapping session keeps climbing the ladder: the answered retry does
+      // not reset it after this unrelated close.
+      yield* harness.closeLatestSession();
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "backoff" && state.attempt === 2,
+      );
+      yield* TestClock.adjust("4 seconds");
+      const reconnected = yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 3,
+      );
+      expect(reconnected.attempt).toBe(3);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
   it.effect("retries a blocked connection when platform credentials change", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
@@ -1048,6 +1093,35 @@ describe("EnvironmentSupervisor", () => {
 
       expect(yield* Ref.get(harness.sessionCount)).toBe(2);
       expect(yield* Ref.get(harness.releaseCount)).toBe(1);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("reconnects immediately when the session closes during a resume probe", () =>
+    Effect.gen(function* () {
+      const probeStarted = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        probe: (attempt) =>
+          attempt === 1
+            ? Deferred.succeed(probeStarted, undefined).pipe(Effect.andThen(Effect.never))
+            : Effect.void,
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.wake("application-active-reconnect");
+      yield* Deferred.await(probeStarted);
+      // The OS reports the suspended socket's close before the probe answers.
+      yield* harness.closeLatestSession();
+
+      // No TestClock advance: the unanswered probe skips the first backoff rung.
+      const reconnected = yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+      expect(reconnected.attempt).toBe(1);
+      expect(yield* Ref.get(harness.sessionCount)).toBe(2);
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
