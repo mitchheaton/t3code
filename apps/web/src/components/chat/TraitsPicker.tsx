@@ -31,7 +31,6 @@ import {
 } from "../ui/menu";
 import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
-import { useThreadReportedModelSelection } from "../../state/entities";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -277,6 +276,7 @@ export interface TraitsMenuContentProps {
   prompt: string;
   onPromptChange: (prompt: string) => void;
   modelOptions?: ProviderOptions | null | undefined;
+  reportedModelSelection?: ModelSelection | null | undefined;
   allowPromptInjectedEffort?: boolean;
   planModeEnabled: boolean;
   triggerClassName?: string;
@@ -291,11 +291,11 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   prompt,
   onPromptChange,
   modelOptions,
+  reportedModelSelection,
   allowPromptInjectedEffort = true,
   planModeEnabled,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
-  const reportedModelSelection = useThreadReportedModelSelection(persistence.threadRef ?? null);
   const modelSelection =
     instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
@@ -503,7 +503,7 @@ export function buildTraitsTriggerDisplay(input: {
   primarySelectDescriptorId: string | null;
   ultrathinkPromptControlled: boolean;
   modelSelection?: ModelSelection | null;
-  reportedModelSelection?: ModelSelection | null;
+  reportedModelSelection?: ModelSelection | null | undefined;
 }): { label: string; speedIcon: "fast" | "ultrafast" | null } {
   let fastModeFallbackLabel: string | null = null;
   let speedIcon: "fast" | "ultrafast" | null = null;
@@ -573,6 +573,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   prompt,
   onPromptChange,
   modelOptions,
+  reportedModelSelection,
   allowPromptInjectedEffort = true,
   planModeEnabled,
   triggerClassName,
@@ -585,7 +586,6 @@ export const TraitsPicker = memo(function TraitsPicker({
     size?: ComposerControlSize;
     hidden?: boolean;
   }) {
-  const reportedModelSelection = useThreadReportedModelSelection(persistence.threadRef ?? null);
   const composerFloatingLayerProps = useComposerMenuProps();
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden);
   const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled } =
@@ -717,6 +717,7 @@ export const TraitsPicker = memo(function TraitsPicker({
           prompt={prompt}
           onPromptChange={onPromptChange}
           modelOptions={modelOptions}
+          reportedModelSelection={reportedModelSelection}
           allowPromptInjectedEffort={allowPromptInjectedEffort}
           planModeEnabled={planModeEnabled}
           {...persistence}
